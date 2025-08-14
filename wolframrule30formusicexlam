@@ -1,0 +1,94 @@
+
+# rule30_to_midi.py
+# Generate a MIDI file from the center column of Rule 30 on a ring
+
+from typing import List
+import pretty_midi
+
+# ---------- Rule 30 on a W-bit ring ----------
+def rule30_step(state: int, W: int) -> int:
+    mask  = (1 << W) - 1
+    left  = ((state << 1) | (state >> (W - 1))) & mask
+    right = ((state >> 1) | ((state & 1) << (W - 1))) & mask
+    return (left ^ (state | right)) & mask
+
+def evolve_rule30(W: int, T: int, seed: int | None = None) -> List[int]:
+    """Return list of T states on a periodic ring of width W."""
+    if seed is None:
+        seed = 1 << (W // 2)  # single 1 in the center
+    s = seed
+    out = []
+    for _ in range(T):
+        s = rule30_step(s, W)
+        out.append(s)
+    return out
+
+def center_bits(states: List[int], W: int) -> List[int]:
+    c = W // 2
+    return [ (st >> c) & 1 for st in states ]
+
+# ---------- Bit stream -> MIDI ----------
+def bits_to_midi(
+    bits: List[int],
+    path: str = "rule30.mid",
+    bpm: float = 110.0,
+    beat_note: int = 60,            # C4
+    scale_steps: List[int] = (0,2,3,5,7,10),  # minor pentatonic
+    steps_per_beat: int = 2,        # 2 bits per beat (8th-notes)
+    swing: float = 0.55,            # 0.5 = straight, >0.5 swings the off-beat later
+    velocity: int = 96,
+) -> str:
+    """
+    Map 1-bits to pitched notes and 0-bits to rests (skip).
+    Swing shifts every odd index inside each beat.
+    """
+    pm = pretty_midi.PrettyMIDI(resolution=960)
+    inst = pretty_midi.Instrument(program=pretty_midi.instrument_name_to_program("Acoustic Grand Piano"))
+    pm.instruments.append(inst)
+
+    sec_per_beat = 60.0 / bpm
+    sec_per_step = sec_per_beat / steps_per_beat
+
+    t = 0.0
+    for i, b in enumerate(bits):
+        # swing timing inside the current beat subdivision
+        # even subdivision -> straight; odd subdivision -> shifted by swing factor
+        sub = i % steps_per_beat
+        if steps_per_beat == 2 and sub == 1:
+            # move the off-beat later (e.g., 55% of the beat instead of 50%)
+            t = (i // 2) * sec_per_beat + sec_per_beat * swing
+            dur = sec_per_beat * (1.0 - swing)  # keep constant beat length
+        else:
+            # default straight grid
+            t = i * sec_per_step
+            dur = sec_per_step
+
+        if b:  # play a note
+            # walk a repeating scale for some melodic motion
+            degree = i % len(scale_steps)
+            pitch = beat_note + scale_steps[degree]
+            note = pretty_midi.Note(velocity=velocity, pitch=pitch, start=t, end=t + dur)
+            inst.notes.append(note)
+        # else: it's a rest; just advance time (already handled by t computation)
+
+    pm.write(path)
+    return path
+
+# ---------- Demo ----------
+if __name__ == "__main__":
+    W = 1024          # ring width
+    T = 512           # number of steps (notes/rests length)
+    states = evolve_rule30(W, T)
+    bits = center_bits(states, W)
+
+    out = bits_to_midi(bits,
+                       path="rule30_spawnish.mid",
+                       bpm=112,
+                       beat_note=60,              # C4 root
+                       scale_steps=[0,3,5,7,10],  # dorian-ish pentatonic
+                       steps_per_beat=2,
+                       swing=0.56,
+                       velocity=96)
+
+    print(f"wrote {out}")
+
