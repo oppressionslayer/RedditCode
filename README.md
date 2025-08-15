@@ -1,0 +1,1 @@
+I'm working on creating an automatic midi creation to help with creating music. it's actuall really good. It uses Wolfram's Rule30 Automation and i'm going to update it so everytime you can seed it to make a random midi that is actually as good as something you pay for but this is open source
